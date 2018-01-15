@@ -1,0 +1,60 @@
+#city-info
+{
+	position: fixed;
+	width: 575px;
+	height: 700px;
+	left:50%;
+	margin-left: -287.5px;
+	top:50%;
+	margin-top: -350px;
+	color: #f8e064;
+	font-weight:bold;
+	font-family: Arial;
+	font-size: 12px;
+	text-shadow: 0.1em 0.1em 0.2em black;
+	background-image: url('imgs/dialr.png');
+	z-index:100;
+	overflow-y: auto;
+	visibility: hidden;
+	overflow: hidden;
+}
+
+#player-input
+{
+	position: fixed;
+	width: 400px;
+	height: 507px;
+	left:50%;
+	margin-left: -200px;
+	top:50%;
+	margin-top: -253.5px;
+	color: #f8e064;
+	font-weight:bold;
+	font-family: Arial;
+	font-size: 12px;
+	text-shadow: 0.1em 0.1em 0.2em black;
+	background-image: url('imgs/parchmentr.png');
+	z-index:100;
+	overflow-y: auto;
+	visibility: visible;
+	overflow: hidden;
+}
+
+
+
+/* latin-ext 
+@font-face {
+  font-family: 'MedievalSharp';
+  font-style: normal;
+  font-weight: 400;
+  src: local('MedievalSharp'), url(http://fonts.gstatic.com/s/medievalsharp/v8/85X_PjV6tftJ0-rX7KYQkB3vPSoPle9lXk13eqj6aMY.woff2) format('woff2');
+  unicode-range: U+0100-024F, U+1E00-1EFF, U+20A0-20AB, U+20AD-20CF, U+2C60-2C7F, U+A720-A7FF;
+}
+ latin 
+@font-face {
+  font-family: 'MedievalSharp';
+  font-style: normal;
+  font-weight: 400;
+  src: local('MedievalSharp'), url(http://fonts.gstatic.com/s/medievalsharp/v8/85X_PjV6tftJ0-rX7KYQkDFDcN0xdsQK-F33XL-X7ko.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2212, U+2215, U+E0FF, U+EFFD, U+F000;
+}*/

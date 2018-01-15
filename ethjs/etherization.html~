@@ -1,0 +1,1347 @@
+<!DOCTYPE html>
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-2">
+    <title>Etherization</title>
+    <meta name="Author" content="Vedran Kajic, info@bspend.com">
+    <meta name="description" content="Etherization - turn based ethereum strategy game">
+	
+    <link rel="stylesheet" type="text/css" href="etherization.css">
+
+    <script src="https://ajax.googleapis.com/ajax/libs/webfont/1.6.16/webfont.js"></script>
+    <script type="text/javascript" src="jquery-3.1.0.min.js"></script>
+    <script type="text/javascript" src="CanvasInput.js"></script>
+    <script type="text/javascript" src="etherization.js"></script>
+    <script type="text/javascript" src="shapes.js"></script>
+    <script type="text/javascript" src="colors.js"></script>
+    <script>
+      WebFont.load({
+        google: {
+          families: ['MedievalSharp']
+        }
+      });
+    </script>
+
+
+
+    <script>
+
+	var sColor = "rgba(255,255,255,1)";
+
+    var mapImg = "imgs/map.png";
+
+	var s = 50; //tile size   
+
+	var MAP_WIDTH;
+	var MAP_HEIGHT;
+	var MAP_ROWS;
+	var MAP_COLS;
+
+    var defeat = new Audio('sounds/defeat.mp3');
+    var capture = new Audio('sounds/capture.mp3');
+    var start = new Audio('sounds/start.mp3');
+    var build = new Audio('sounds/build.mp3');
+    var unit = new Audio('sounds/unit.mp3');
+    var city = new Audio('sounds/city.mp3');
+    var background = new Audio('sounds/background.mp3');
+    background.volume = 0.4;
+    background.addEventListener('canplaythrough', function() { 
+       background.play();
+    }, false);
+
+    
+    var pi; //player input div
+    var ci; //city info div
+
+	var canvas;
+	var c;
+    var ccanvas; //city info canvas
+    var cc; //city info canvas context
+    var pcanvas; //player input canvas
+    var pc; //player input canvas context
+    var pinput; //player text input box
+
+    var isOverOK = false;
+		
+	var imgRes = {};
+    var guiparams = {};
+    var msgList = new Array();
+    var clicked = false;
+	
+    var gameState = "accountSelect";
+    var started = false;
+    var account;
+    var playerID;
+    var rowClicked = 0;
+    var colClicked = 0;
+    var cityID;
+    var cityOwner;
+    var units;
+    var playerName;
+    var cityName;
+    var targets = new Array();
+    var playersTimestamps = new Array();
+    var events = new Array();
+
+    var numCities = 0;
+	
+
+
+    var filter = web3.eth.filter('latest');
+
+    filter.watch(function(error, result){
+        playerID = etherization.getMyPlayerID( {from: account, gas: 3000000 } ).toNumber();
+        fillEvents();
+        render();
+
+      /*var block = web3.eth.getBlock(result, true);
+      console.log('block #' + block.number);
+      var transaction = web3.eth.getTransactionFromBlock('latest', 0);
+      console.log(transaction); */
+    });
+
+
+	function mapDataArray(rows, cols)
+	{
+		var a = new Array(rows);
+		for(var i = 0; i < rows; i++)
+		{
+			a[i] = new Array(cols);
+            for(var j = 0; j < cols; j++)
+		    {
+			    a[i][j] = 0;
+		    }
+		}
+		return a;
+	}	
+	
+	function loadImage(file)
+	{
+		imgRes[file] = new Image();
+		imgRes[file].src = file;
+		imgRes[file].onload = function() {
+            //render();
+            c.drawImage(imgRes[mapImg], 0, 0);
+            renderP();
+		}
+	}
+	
+	function renderStart()
+	{
+		window.oncontextmenu = function() { return false; }
+
+        pi = document.getElementById('player-input');
+        ci = document.getElementById('city-info');
+	        
+        canvas = document.getElementById('tiles');
+		c = canvas.getContext('2d');
+        ccanvas = $("#city").get(0);
+        cc = ccanvas.getContext('2d');
+        cc.fillStyle = "black";
+        cc.textAlign = "center";
+        pcanvas = $("#player").get(0);
+        pc = pcanvas.getContext('2d');
+
+        pinput = new CanvasInput({
+          canvas: pcanvas,
+          fontFamily: 'MedievalSharp',
+          x: 60,
+          y: 400,
+          width: 210,
+          value: web3.eth.coinbase,
+          onkeyup: function(e) { if(e.code === 'Enter') { parseInput(); } }
+          //onkeydown: function(e) { if(pinput.value().length > 16) {pinput.value(pinput.value().substring(0,16)); } }
+          //onkeydown: function(e) { if(pinput.value().length > 16) {pinput.value(pinput.value().substring(0,8) + '..' + pinput.value().substring(pinput.value().length-7)); } }
+        });
+
+        MAP_WIDTH = canvas.getAttribute("width");
+	    MAP_HEIGHT = canvas.getAttribute("height");
+	    MAP_ROWS = Math.floor(MAP_HEIGHT/s)-2;
+	    MAP_COLS = Math.floor(MAP_WIDTH/s);
+
+        mapData = new mapDataArray(MAP_ROWS, MAP_COLS); 
+
+        initGui();
+
+        loadImage(mapImg);
+
+        canvas.addEventListener("mousemove", 
+			function(e) 
+			{ 
+                if(gameState != "map") {
+                    return;
+                }
+
+			    var i, items, mx, my;
+			    mx = e.clientX - canvas.offsetLeft + document.body.scrollLeft + document.documentElement.scrollLeft;
+				my = e.clientY - canvas.offsetTop + document.body.scrollTop + document.documentElement.scrollTop;
+
+                if(started) {
+                    items = ["build", "deposit", "withdraw"];
+                } else {
+                    items = ["start"];
+                }
+                for (i=0; i<items.length; i++) {
+                    if(isActive() && !guiparams[items[i]].active && mx<guiparams[items[i]].x2 && mx>guiparams[items[i]].x1 && my>guiparams[items[i]].y1 && my<guiparams[items[i]].y2) {
+                        guiparams[items[i]].active = true;
+                        render();
+                        return;
+		            } else if(guiparams[items[i]].active && (mx>guiparams[items[i]].x2||mx<guiparams[items[i]].x1||my<guiparams[items[i]].y1||my>guiparams[items[i]].y2)) {
+                        guiparams[items[i]].active = false;
+                        render();
+                        return;
+		            }
+                }
+			},
+			false);
+
+		canvas.addEventListener("mousedown", 
+			function(e) 
+			{
+                if(gameState == "accountSelect" || gameState == "startPlayerName" || gameState == "startCityName" || gameState == "buildCityName" || gameState == "deposit" || gameState == "withdraw") {
+                    return;
+                }
+
+				var i, items, mx, my, posx, posy, m, n;
+	
+				mx = e.clientX - canvas.offsetLeft + document.body.scrollLeft + document.documentElement.scrollLeft;
+				my = e.clientY - canvas.offsetTop + document.body.scrollTop + document.documentElement.scrollTop;
+
+                if(!started && mx<guiparams["start"].x2 && mx>guiparams["start"].x1 && my>guiparams["start"].y1 && my<guiparams["start"].y2) {
+                    guiparams["start"].active = false;
+                    gameState = "startPlayerName";
+                    pinput.onkeydown( function(e) { if(pinput.value().length > 16) {pinput.value(pinput.value().substring(0,16)); } } );
+                    renderP();
+                    return;
+	            } else if(isActive() && started && mx<guiparams["build"].x2 && mx>guiparams["build"].x1 && my>guiparams["build"].y1 && my<guiparams["build"].y2) {
+                    guiparams["build"].active = false;
+                    gameState = "buildCityName";
+                    pinput.onkeydown( function(e) { if(pinput.value().length > 16) {pinput.value(pinput.value().substring(0,16)); } } );
+                    renderP();
+                    return;
+	            } else if(isActive() && started && mx<guiparams["deposit"].x2 && mx>guiparams["deposit"].x1 && my>guiparams["deposit"].y1 && my<guiparams["deposit"].y2) {
+                    guiparams["deposit"].active = false;
+                    gameState = "deposit";
+                    pinput.onkeydown( function(e) { if(pinput.value().length > 16) {pinput.value(pinput.value().substring(0,16)); } } );
+                    renderP();
+                    return;
+	            } else if(isActive() && started && mx<guiparams["withdraw"].x2 && mx>guiparams["withdraw"].x1 && my>guiparams["withdraw"].y1 && my<guiparams["withdraw"].y2) {
+                    guiparams["withdraw"].active = false;
+                    gameState = "withdraw";
+                    pinput.onkeydown( function(e) { if(pinput.value().length > 16) {pinput.value(pinput.value().substring(0,16)); } } );
+                    renderP();
+                    return;
+	            }
+
+				posx = Math.floor(mx/s)*s - 5;
+                posy = Math.floor(my/s)*s - 5;
+
+                rowClicked = Math.floor((my-2*s)/s);
+                colClicked = Math.floor(mx/s);
+
+                if(rowClicked<0 || rowClicked>=MAP_ROWS || colClicked<0 || colClicked>=MAP_COLS) {
+                    gameState = "map";
+                    targets = new Array();
+                    ci.style.visibility = 'hidden';
+                    render();
+                    return;
+                }
+
+                if(mapData[rowClicked][colClicked] < 1) {
+                    if(gameState === "start") {
+                        if(etherization.numCities().toNumber() > 0) {
+                            for(m=rowClicked-1; m<=rowClicked+1; m++) {
+                                for(n=colClicked-1; n<=colClicked+1; n++) {
+                                    if(m>=0 && m<MAP_ROWS && n>=0 && n<MAP_COLS && mapData[m][n] > 0) {
+                                        etherization.start(playerName, cityName, rowClicked, colClicked, m, n, {from: account, gas: 3000000, value: web3.toWei(2) } );
+                                        //started = true;
+                                    }
+                                }
+                            }
+                        } else if(rowClicked==10 && colClicked==10) {
+                            etherization.start(playerName, cityName, rowClicked, colClicked, 10, 10, {from: account, gas: 3000000, value: web3.toWei(2) } );
+                            //started = true;
+                        }
+                    } else if(gameState === "build") {
+                        for(m=rowClicked-1; m<=rowClicked+1; m++) {
+                            for(n=colClicked-1; n<=colClicked+1; n++) {
+                                if(m>=0 && m<MAP_ROWS && n>=0 && n<MAP_COLS && mapData[m][n] > 0) {
+                                    var rowcol = new Array(2);
+                                    rowcol[0] = rowClicked;
+                                    rowcol[1] = colClicked;
+                                    var mn = new Array(2);
+                                    mn[0] = m;
+                                    mn[1] = n;
+                                    etherizationutils2.buildCity(cityName, rowcol, mn, {from: account, gas: 3000000 } );
+                                }
+                            }
+                        }
+                    }
+                    gameState = "map";
+                    targets = new Array();
+                    ci.style.visibility = 'hidden';
+                    render();
+                    return;
+                }
+
+                if(gameState === "move") {
+                    var targetID = mapData[rowClicked][colClicked]-1;
+                    targetOwner = etherization.getCity(targetID)[0].toNumber();
+                    if(cityOwner == targetOwner && cityID != targetID && checkTargets(rowClicked,colClicked)) {
+                        etherizationutils.moveUnits(cityID, targetID, units, {from: account, gas: 3000000 } );
+                        gameState = "map";
+                        targets = new Array();
+                        ci.style.visibility = 'hidden';
+                        render();
+                        return;
+                    }
+                } else if(gameState === "attack" && checkTargets(rowClicked,colClicked)) {
+                    var targetID = mapData[rowClicked][colClicked]-1;
+                    targetOwner = etherization.getCity(targetID)[0].toNumber();
+                    if(cityOwner != targetOwner) {
+                        etherizationutils2.attack(cityID, targetID, units, {from: account, gas: 3000000 } );
+                        gameState = "map";
+                        targets = new Array();
+                        ci.style.visibility = 'hidden';
+                        render();
+                        return;
+                    }
+                }
+
+                gameState = "map";
+                targets = new Array();
+                cityID = mapData[rowClicked][colClicked]-1;
+                cityOwner = etherization.getCity(cityID)[0].toNumber();
+			    guiparams["city"].title = etherization.getCity(mapData[rowClicked][colClicked]-1)[1];
+                guiparams["city"].color = colors[etherization.getCity(mapData[rowClicked][colClicked]-1)[0].toNumber()];
+                items = ["quarry", "farm", "ww", "mw", "stab"];
+                for (i=0; i<5; i++) {  
+                    if(etherization.getCity(mapData[rowClicked][colClicked]-1)[2][i]) {
+                        guiparams[items[i]].exists = true;
+                        guiparams[items[i]].active = true;
+                    } else {
+                        guiparams[items[i]].exists = false;
+                        guiparams[items[i]].active = false;
+                    }
+                }
+                items = ["unit0", "unit1", "unit2", "unit3", "unit4", "unit5", "unit6", "unit7", "unit8", "unit9"];
+                for (i=0; i<10; i++) {  
+                    if(etherization.getCity(mapData[rowClicked][colClicked]-1)[3][i].toNumber()) {
+                        guiparams[items[i]].exists = true;
+                        guiparams[items[i]].active = false;
+                        guiparams[items[i]].selected = false;
+                        guiparams[items[i]].type = etherization.getCity(mapData[rowClicked][colClicked]-1)[3][i].toNumber();
+                    } else {
+                        guiparams[items[i]].exists = false;
+                        guiparams[items[i]].active = false;
+                        guiparams[items[i]].selected = false;
+                        guiparams[items[i]].type = 0;
+                    }
+                }
+                fillUnits();
+                renderCity();
+
+			},
+			false);
+
+		ccanvas.addEventListener("mousemove", 
+			function(e) 
+			{ 
+                if(cityOwner != playerID || !isActive()) {
+                    return;
+                }
+
+			    var mx, my;
+			    mx = e.layerX - document.body.scrollLeft;
+			    my = e.layerY - document.body.scrollTop;
+
+                var i, items;
+                items = ["quarry", "farm", "ww", "mw", "stab"];
+                for (i=0; i<items.length; i++) {                
+                    if(!guiparams[items[i]].exists && !guiparams[items[i]].active && mx<guiparams[items[i]].x+80 && mx>guiparams[items[i]].x && my>guiparams[items[i]].y && my<guiparams[items[i]].y+80) {
+                        guiparams[items[i]].active = true;
+                        renderCity();
+                        c.fillStyle = "black";
+                        c.fillRect(105,35,MAP_WIDTH-106,60);
+                        c.fillStyle = "white";
+                        c.font = "22px MedievalSharp";
+                        c.fillText(guiparams[items[i]].text,108,65);
+                        return;
+			        } else if(!guiparams[items[i]].exists && guiparams[items[i]].active && (mx>guiparams[items[i]].x+80||mx<guiparams[items[i]].x||my<guiparams[items[i]].y||my>guiparams[items[i]].y+80)) {
+                        guiparams[items[i]].active = false;
+                        renderCity();
+                        return;
+			        }
+                }
+                items = ["pikeb", "swordb", "horseb"];
+                for (i=0; i<items.length; i++) {
+                    if(!guiparams[items[i]].active && mx<guiparams[items[i]].x+50 && mx>guiparams[items[i]].x && my>guiparams[items[i]].y && my<guiparams[items[i]].y+80) {
+                        guiparams[items[i]].active = true;
+                        renderCity();
+                        c.fillStyle = "black";
+                        c.fillRect(105,35,MAP_WIDTH-106,60);
+                        c.fillStyle = "white";
+                        c.font = "22px MedievalSharp";
+                        c.fillText(guiparams[items[i]].text,108,65);
+                        return;
+			        } else if(guiparams[items[i]].active && (mx>guiparams[items[i]].x+50||mx<guiparams[items[i]].x||my<guiparams[items[i]].y||my>guiparams[items[i]].y+80)) {
+                        guiparams[items[i]].active = false;
+                        renderCity();
+                        return;
+			        }
+                }
+                items = ["unit0", "unit1", "unit2", "unit3", "unit4", "unit5", "unit6", "unit7", "unit8", "unit9"];
+                for (i=0; i<items.length; i++) {
+                    if(!guiparams[items[i]].exists) {
+                        continue;
+                    }
+                    if(clicked && (mx>guiparams[items[i]].x+40 || mx<guiparams[items[i]].x || my<guiparams[items[i]].y || my>guiparams[items[i]].y+70)) {
+                        clicked = false;
+                    }
+                    if(!guiparams[items[i]].selected && !guiparams[items[i]].active && !clicked &&
+                    mx<guiparams[items[i]].x+40 && mx>guiparams[items[i]].x && my>guiparams[items[i]].y && my<guiparams[items[i]].y+70) {
+                        guiparams[items[i]].active = true;
+                        renderCity();
+                        return;
+                    } else if(guiparams[items[i]].selected && guiparams[items[i]].active && !clicked &&
+                    mx<guiparams[items[i]].x+40 && mx>guiparams[items[i]].x && my>guiparams[items[i]].y && my<guiparams[items[i]].y+70) {
+                        guiparams[items[i]].active = false;
+                        renderCity();
+                        return;
+                    } else if(guiparams[items[i]].selected && !guiparams[items[i]].active &&
+                    (mx>guiparams[items[i]].x+40 || mx<guiparams[items[i]].x || my<guiparams[items[i]].y || my>guiparams[items[i]].y+70)) {
+                        guiparams[items[i]].active = true;
+                        renderCity();
+                        return;
+			        } else if(!guiparams[items[i]].selected && guiparams[items[i]].active &&
+                    (mx>guiparams[items[i]].x+40 || mx<guiparams[items[i]].x || my<guiparams[items[i]].y || my>guiparams[items[i]].y+70)) {
+                        guiparams[items[i]].active = false;
+                        renderCity();
+                        return;
+			        }
+                }
+                if(units.length < 1) {
+                    renderCity();
+                    return;
+                }
+                items = ["attack", "move"];
+                for (i=0; i<items.length; i++) {
+                    if(!guiparams[items[i]].active && mx<guiparams[items[i]].x2 && mx>guiparams[items[i]].x1 && my>guiparams[items[i]].y1 && my<guiparams[items[i]].y2) {
+                        guiparams[items[i]].active = true;
+                        renderCity();
+                        c.fillStyle = "black";
+                        c.fillRect(105,35,MAP_WIDTH-106,60);
+                        c.fillStyle = "white";
+                        c.font = "22px MedievalSharp";
+                        c.fillText(guiparams[items[i]].text,108,65);
+                        return;
+		            } else if(guiparams[items[i]].active && (mx>guiparams[items[i]].x2||mx<guiparams[items[i]].x1||my<guiparams[items[i]].y1||my>guiparams[items[i]].y2)) {
+                        guiparams[items[i]].active = false;
+                        renderCity();
+                        return;
+		            }
+                }
+
+			},
+			false);
+
+		ccanvas.addEventListener("mousedown", 
+			function(e) 
+			{ 
+                if(cityOwner != playerID || !isActive()) {
+                    return;
+                }
+
+			    var i, j, mx, my;
+			    mx = e.layerX - document.body.scrollLeft;
+			    my = e.layerY - document.body.scrollTop;
+
+
+                var items;
+                items = ["quarry", "farm", "ww", "mw", "stab"];
+                for (i=0; i<items.length; i++) {                
+                    if(!guiparams[items[i]].exists && mx<guiparams[items[i]].x+80 && mx>guiparams[items[i]].x && my>guiparams[items[i]].y && my<guiparams[items[i]].y+80) {
+                        guiparams[items[i]].exists = true;
+                        etherizationutils.buyBuilding(cityID, i, {from: account, gas: 3000000 } );
+                        ci.style.visibility = 'hidden';
+                        return;
+			        }
+                }
+
+                items = ["pikeb", "swordb", "horseb"];
+                for (i=0; i<items.length; i++) {
+                    if(mx<guiparams[items[i]].x+50 && mx>guiparams[items[i]].x && my>guiparams[items[i]].y && my<guiparams[items[i]].y+80) {
+                        guiparams[items[i]].active = false;
+                        etherizationutils.buyUnit(cityID, i+1, {from: account, gas: 3000000 } );
+                        ci.style.visibility = 'hidden';
+                        return;
+			        }
+                }
+                
+                items = ["unit0", "unit1", "unit2", "unit3", "unit4", "unit5", "unit6", "unit7", "unit8", "unit9"];
+                for (i=0; i<items.length; i++) {
+                    if(!guiparams[items[i]].exists) {
+                        continue;
+                    }
+                    if(mx<guiparams[items[i]].x+40 && mx>guiparams[items[i]].x && my>guiparams[items[i]].y && my<guiparams[items[i]].y+70) {
+                        if(guiparams[items[i]].selected) {
+                            guiparams[items[i]].selected = false;
+                            guiparams[items[i]].active = false;
+                            clicked = true;
+                            fillUnits();
+                            renderCity();
+                            return;
+                        } else {
+                            guiparams[items[i]].selected = true;
+                            guiparams[items[i]].active = true;
+                            clicked = true;
+                            fillUnits();
+                            renderCity();
+                            return;
+                        }
+		            }
+                }
+
+                var targetID, targetOwner;
+                if(guiparams["attack"].active && mx<guiparams["attack"].x2 && mx>guiparams["attack"].x1 && my>guiparams["attack"].y1 && my<guiparams["attack"].y2) {
+                    if(units.length < 1) {
+                        return;
+                    }
+                    targets = new Array();
+                    for(i=rowClicked-1; i<=rowClicked+1; i++) {
+                        for(j=colClicked-1; j<=colClicked+1; j++) {
+                            if(i>=0 && i<MAP_ROWS && j>=0 && j<MAP_COLS) {
+                                targetID = mapData[i][j]-1;
+                                if(targetID<0) {
+                                    continue;
+                                }
+                                targetOwner = etherization.getCity(targetID)[0].toNumber();
+                                if(cityOwner != targetOwner) {
+                                    targets.push(new Array(i,j));
+                                    //c.drawImage(imgRes["target.png"],q2,q1);
+                                }
+                            }
+                        }
+                    }
+                    gameState = "attack";
+                    guiparams["attack"].active = false;
+                    ci.style.visibility = 'hidden';
+                    render();
+                    return;
+	            }
+                if(guiparams["move"].active && mx<guiparams["move"].x2 && mx>guiparams["move"].x1 && my>guiparams["move"].y1 && my<guiparams["move"].y2) {
+                    if(units.length < 1) {
+                        return;
+                    }
+                    targets = new Array();
+                    for(i=rowClicked-1; i<=rowClicked+1; i++) {
+                        for(j=colClicked-1; j<=colClicked+1; j++) {
+                            if(i>=0 && i<MAP_ROWS && j>=0 && j<MAP_COLS) {
+                                targetID = mapData[i][j]-1;
+                                if(targetID<0) {
+                                    continue;
+                                }
+                                targetOwner = etherization.getCity(targetID)[0].toNumber();
+                                if(cityOwner == targetOwner && cityID != targetID) {
+                                    targets.push(new Array(i,j));
+                                    //c.drawImage(imgRes["target.png"],q2,q1);
+                                }
+                            }    
+                        }
+                    }
+                    gameState = "move";
+                    guiparams["move"].active = false;
+                    ci.style.visibility = 'hidden';
+                    render();
+                    return;
+	            }
+
+			},
+			false);
+
+        pcanvas.addEventListener("mousemove", 
+			function(e) 
+			{ 
+			    var mx, my;
+			    mx = e.layerX - document.body.scrollLeft;
+			    my = e.layerY - document.body.scrollTop;
+
+			    if(!isOverOK && mx < 335 && mx > 285 && my > 393 && my < 433) {
+				    isOverOK = true;
+				    pc.clearRect(285, 393, 50, 40);
+				    pc.font = "28px MedievalSharp";
+				    pc.fillText("OK",295,423);
+			    }
+			    if(isOverOK && (mx > 335 || mx < 285 || my < 393 || my > 433)) {
+				    isOverOK = false;
+				    renderP();
+			    }
+			},
+			false);
+
+        pcanvas.addEventListener("mousedown", 
+			function(e) 
+			{ 
+			    var mx, my;
+			    mx = e.layerX - document.body.scrollLeft;
+			    my = e.layerY - document.body.scrollTop;
+
+			    if(mx < 335 && mx > 285 && my > 393 && my < 433) {
+                    parseInput();
+			    }
+			},
+			false);
+
+	}
+
+    function parseInput() {
+        if(gameState === "accountSelect") {
+            account = pinput.value();
+            playerID = etherization.getMyPlayerID( {from: account, gas: 3000000 } ).toNumber();
+
+            if(playerID < 0 || playerID > 1155) {
+                started = false;
+            } else {
+                started = true;
+            }
+            gameState = "map";
+            pi.style.visibility = 'hidden';
+            render();
+            enableScroll();
+        } else if(gameState === "startPlayerName") {
+            playerName = pinput.value();
+            gameState = "startCityName";
+            renderP();
+        } else if(gameState === "startCityName") {
+            cityName = pinput.value();
+            gameState = "start";
+            pi.style.visibility = 'hidden';
+            render();
+            if(etherization.numCities().toNumber() > 0) {
+                drawLocations();
+            } else {
+                targets.push(new Array(10,10));
+                render();
+            }
+            enableScroll();
+        } else if(gameState === "buildCityName") {
+            cityName = pinput.value();
+            gameState = "build";
+            pi.style.visibility = 'hidden';
+            render();
+            drawLocations();
+            enableScroll();
+        } else if(gameState === "deposit") {
+            var val = parseFloat(pinput.value());
+            etherization.deposit( {from: account, gas: 3000000, value: web3.toWei(val) } );
+            gameState = "map";
+            pi.style.visibility = 'hidden';
+            render();
+            enableScroll();
+        } else if(gameState === "withdraw") {
+            var val = parseFloat(pinput.value());
+            etherization.withdraw(web3.toWei(val), {from: account, gas: 3000000 } );
+            gameState = "map";
+            pi.style.visibility = 'hidden';
+            render();
+            enableScroll();
+        }
+
+    }
+
+    function renderP()
+    {
+        disableScroll();
+
+        pi.style.visibility = 'visible';
+        pc.clearRect(0, 0, pcanvas.width, pcanvas.height);
+        pc.font = "24px MedievalSharp";
+        //renderPlayerText(['Select account number', 'that you wish to use', 'for playing the game.', 'E.g. if you want to use', 'eth.accounts[2] enter 2.', 'It is recommended to', 'create a new account',  'for playing the game,', 'not to use the main eth', 'account.', 'Specified account needs', 'to be unlocked.']);
+
+        if(gameState === "accountSelect") {        
+            renderPlayerText(['Paste (Ctrl-V) address', 'that you wish to use', 'for playing the game.', 'The default is coinbase.', 'It is recommended to', 'create a new account',  'for playing the game,', 'not to use coinbase.']);
+        } else if(gameState === "startPlayerName") {
+            renderPlayerText(['Enter your player name.']);
+            pinput.value("Name");
+        } else if(gameState === "startCityName") {
+            renderPlayerText(['Enter the name of', 'your capitol.']);
+            pinput.value("City");
+        } else if(gameState === "buildCityName") {
+            renderPlayerText(['Enter the name of', 'your city.']);
+            pinput.value("City");
+        } else if(gameState === "deposit") {
+            renderPlayerText(['Enter the amount to', 'deposit.']);
+            pinput.value("0");
+        } else if(gameState === "withdraw") {
+            renderPlayerText(['Enter the amount to', 'withdraw.']);
+            pinput.value("0");
+        }
+
+        pinput.extraY(canvas.offsetTop + document.body.scrollTop); 
+        pinput.extraX(canvas.offsetLeft + document.body.scrollLeft); 
+
+        pc.fillText('OK',295,423);    
+    }
+
+    function renderCity() {
+        ci.style.visibility = 'visible';
+        cc.clearRect(0, 0, ccanvas.width, ccanvas.height);
+
+        cc.drawImage(imgRes["city2.png"],275,95);
+
+        cc.drawImage(imgRes["flagclnr.png"],388,96);
+        var imd = cc.getImageData(388,96,28,24);
+        var dta = imd.data;
+        var v, rd, gr, bl;
+        var rgbc;
+        var i;
+        for (i=0; i<dta.length; i+=4) {
+            rd = dta[i];
+            gr = dta[i+1];
+            bl = dta[i+2];
+            v = (rd+gr+bl)/(3*255);
+            rgbc = hexToRgb(guiparams["city"].color);
+            dta[i] = rgbc[0]*v; dta[i+1] = rgbc[1]*v; dta[i+2] = rgbc[2]*v;
+        }
+        cc.putImageData(imd, 388, 96);
+
+        cc.drawImage(imgRes["con.png"],125,360);
+
+		cc.font = "28px MedievalSharp";
+		cc.fillText(guiparams["city"].title,388,248);
+
+        if(cityOwner == playerID ) {
+            if(guiparams["attack"].active) {
+                cc.font = "28px MedievalSharp";
+            } else {
+                cc.font = "24px MedievalSharp";
+            }		    
+		    cc.fillText("Attack!",238,575);
+
+            if(guiparams["move"].active) {
+                cc.font = "28px MedievalSharp";
+            } else {
+                cc.font = "24px MedievalSharp";
+            }	
+		    cc.fillText("Move Units",415,575);
+        }
+
+        var items = ["quarry", "farm", "ww", "mw", "stab", "pikeb", "swordb", "horseb"];
+        for (i=0; i<items.length; i++) {
+            if(guiparams[items[i]].active) {
+                cc.drawImage(guiparams[items[i]].img,guiparams[items[i]].x,guiparams[items[i]].y);
+            } else {
+                cc.drawImage(guiparams[items[i]].imgg,guiparams[items[i]].x,guiparams[items[i]].y);
+            }
+        }
+
+        items = ["unit0", "unit1", "unit2", "unit3", "unit4", "unit5", "unit6", "unit7", "unit8", "unit9"];
+        for (i=0; i<items.length; i++) {
+            if(guiparams[items[i]].type == 1) {
+                cc.drawImage(imgRes["pike.png"],guiparams[items[i]].x,guiparams[items[i]].y);
+            } else if(guiparams[items[i]].type == 2) {
+                cc.drawImage(imgRes["sword.png"],guiparams[items[i]].x,guiparams[items[i]].y);
+            } else if(guiparams[items[i]].type == 3) {
+                cc.drawImage(imgRes["horse.png"],guiparams[items[i]].x,guiparams[items[i]].y);
+            }
+            if(guiparams[items[i]].active) {
+                cc.drawImage(imgRes["tick.png"],guiparams[items[i]].x+20,520);
+            }
+        }
+    }
+	
+	function render()
+	{	
+        c.drawImage(imgRes[mapImg], 0, 0);       
+
+        c.font = "24px MedievalSharp";
+        c.textAlign = "left";
+        c.fillStyle = "white";
+        c.fillText("COMMANDS:",10,30);
+        if(started) {
+            c.textAlign = "center";
+            if(guiparams["build"].active) {
+                c.font = "28px MedievalSharp";
+            } else {
+                c.font = "24px MedievalSharp";
+            }	
+		    c.fillText("Build City",guiparams["build"].x,guiparams["build"].y);
+            if(guiparams["deposit"].active) {
+                c.font = "28px MedievalSharp";
+            } else {
+                c.font = "24px MedievalSharp";
+            }	
+		    c.fillText("Deposit",guiparams["deposit"].x,guiparams["deposit"].y);
+            if(guiparams["withdraw"].active) {
+                c.font = "28px MedievalSharp";
+            } else {
+                c.font = "24px MedievalSharp";
+            }	
+		    c.fillText("Withdraw",guiparams["withdraw"].x,guiparams["withdraw"].y);     
+            c.textAlign = "left";
+            c.font = "22px MedievalSharp";
+
+            c.fillText("Next move:", 600,30);
+            if(isActive()) {
+                c.fillStyle = "green";
+            } else {
+                c.fillStyle = "red";
+            }
+            c.fillText(timeLeft(),720,30);
+            c.fillStyle = "white";
+            c.fillText("Treasury: " + parseFloat(web3.fromWei(etherization.players(playerID)[2]).toNumber()).toFixed(2) + "    Quarrys: " + etherization.getQrLength().toNumber() + "  Farms: " + etherization.getFmLength().toNumber() + "  Wws: " + etherization.getWwLength().toNumber() + "  Mws: " + etherization.getMwLength().toNumber() + "  Stables: " + etherization.getStLength().toNumber(), 850,30);
+            c.font = "24px MedievalSharp";
+            c.fillText("STATUS:",10,65);
+            c.font = "22px MedievalSharp";
+            c.fillText(msgList[etherization.getMyMsg( {from: account, gas: 3000000 } ).toNumber()%100 - 1],108,65);
+        } else {
+            if(guiparams["start"].active) {
+                c.font = "28px MedievalSharp";
+            } else {
+                c.font = "24px MedievalSharp";
+            }	
+            c.textAlign = "center";
+		    c.fillText("Start",guiparams["start"].x,guiparams["start"].y);
+        }        
+        c.textAlign = "left";
+        c.font = "24px MedievalSharp";
+
+        var q1, q2;
+        for(var i = 0; i < etherization.numCities().toNumber(); i++) {
+            q1 = etherization.getCity(i)[4][0].toNumber()*s + 2*s - 5;
+            q2 = etherization.getCity(i)[4][1].toNumber()*s - 5;
+            if(i%3 == 0) {
+                path2D = new Path2D("m " + q2 + "," + q1 + d1);
+            } else if(i%3 == 1) {
+                path2D = new Path2D("m " + q2 + "," + q1 + d2);
+            } else if(i%3 == 2) {
+                path2D = new Path2D("m " + q2 + "," + q1 + d3);
+            }
+            c.fillStyle = colors[etherization.getCity(i)[0].toNumber()];
+            c.fill(path2D);
+
+            mapData[etherization.getCity(i)[4][0].toNumber()][etherization.getCity(i)[4][1].toNumber()] = i+1;
+        }
+
+        drawGrid(c);
+
+        for(var i = 0; i < targets.length; i++) {
+            c.drawImage(imgRes["target.png"],targets[i][1]*s+5,targets[i][0]*s+2*s+5);
+        }
+
+        for(var i = 0; i < events.length; i++) {
+            if(events[i]%100 == 1) {
+                c.drawImage(imgRes["capitol.png"],(Math.floor(events[i]/10000)%100)*s+5,(Math.floor(events[i]/100)%100)*s+2*s+5);
+                start.play();
+            } else if(events[i]%100 == 7) {
+                c.drawImage(imgRes["building.png"],(Math.floor(events[i]/10000)%100)*s+5,(Math.floor(events[i]/100)%100)*s+2*s+5);
+                build.play();
+            } else if(events[i]%100 == 12) {
+                c.drawImage(imgRes["unit.png"],(Math.floor(events[i]/10000)%100)*s+5,(Math.floor(events[i]/100)%100)*s+2*s+5);
+                unit.play();
+            } else if(events[i]%100 == 18) {
+                c.drawImage(imgRes["swordsu.png"],(Math.floor(events[i]/10000)%100)*s+5,(Math.floor(events[i]/100)%100)*s+2*s+5);
+                capture.play();
+            } else if(events[i]%100 == 19) {
+                c.drawImage(imgRes["swordsd.png"],(Math.floor(events[i]/10000)%100)*s+5,(Math.floor(events[i]/100)%100)*s+2*s+5);
+                defeat.play();
+            } else if(events[i]%100 == 20) {
+                c.drawImage(imgRes["city.png"],(Math.floor(events[i]/10000)%100)*s+5,(Math.floor(events[i]/100)%100)*s+2*s+5);
+                city.play();
+            }
+        }
+	}
+
+	function drawGrid(c)
+	{
+		var posx = 0;
+		var posy = 2*s;
+
+		c.strokeStyle = sColor;
+
+		for (var row = 0; row <= MAP_ROWS; row++) 
+		{
+			c.beginPath();
+			c.moveTo(posx, posy);
+			c.lineTo(MAP_COLS*s, posy);
+			c.stroke();
+			posy = posy + s;
+		}
+	    posy = 2*s;
+		for (var col = 0; col <= MAP_COLS; col++) 
+		{
+            c.beginPath();
+			c.moveTo(posx, posy);
+			c.lineTo(posx, (MAP_ROWS+2)*s);
+			c.stroke();
+			posx = posx + s;
+		}
+    }
+
+    function drawLocations() {
+        var i, j, m, n, found;
+
+        targets = new Array();
+        for(i=0; i<MAP_ROWS; i++) {
+            for(j=0; j<MAP_COLS; j++) {
+                found = false;
+                if(mapData[i][j] < 1) {
+                    for(m=i-1; m<=i+1; m++) {
+                        for(n=j-1; n<=j+1; n++) {
+                            if(m>=0 && m<MAP_ROWS && n>=0 && n<MAP_COLS && mapData[m][n] > 0) {
+                                found = true;
+                                targets.push(new Array(i,j));
+                                //c.drawImage(imgRes["target.png"],q2,q1);
+                                break;
+                            }
+                        }
+                        if(found) {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        render();
+    }
+
+    function renderPlayerText(playerText)
+	{
+        pc.font = "24px MedievalSharp";
+        for (var i = 0; i < playerText.length; i++) {
+            pc.fillText(playerText[i],60,100+i*25); 
+        } 
+    }
+
+
+    function initGui() {
+		imgRes["target.png"] = new Image();
+		imgRes["target.png"].src = "imgs/target.png";
+
+		imgRes["swordsu.png"] = new Image();
+		imgRes["swordsu.png"].src = "imgs/swordsu.png";
+		imgRes["swordsd.png"] = new Image();
+		imgRes["swordsd.png"].src = "imgs/swordsd.png";
+		imgRes["city.png"] = new Image();
+		imgRes["city.png"].src = "imgs/city.png";
+		imgRes["capitol.png"] = new Image();
+		imgRes["capitol.png"].src = "imgs/capitol.png";
+		imgRes["unit.png"] = new Image();
+		imgRes["unit.png"].src = "imgs/unit.png";
+		imgRes["building.png"] = new Image();
+		imgRes["building.png"].src = "imgs/building.png";
+
+		imgRes["city2.png"] = new Image();
+		imgRes["city2.png"].src = "imgs/city2cln3.png";
+		imgRes["flagclnr.png"] = new Image();
+		imgRes["flagclnr.png"].src = "imgs/flagclnr.png";
+		imgRes["con.png"] = new Image();
+		imgRes["con.png"].src = "imgs/conscr.png";
+		imgRes["pikebg.png"] = new Image();
+		imgRes["pikebg.png"].src = "imgs/pikemenrbg.png";
+		imgRes["swordbg.png"] = new Image();
+		imgRes["swordbg.png"].src = "imgs/swordsmenrbg.png";
+		imgRes["horsebg.png"] = new Image();
+		imgRes["horsebg.png"].src = "imgs/horsemenrbg.png";
+		imgRes["pikeb.png"] = new Image();
+		imgRes["pikeb.png"].src = "imgs/pikemenrb.png";
+		imgRes["swordb.png"] = new Image();
+		imgRes["swordb.png"].src = "imgs/swordsmenrb.png";
+		imgRes["horseb.png"] = new Image();
+		imgRes["horseb.png"].src = "imgs/horsemenrb.png";
+		imgRes["horse.png"] = new Image();
+		imgRes["horse.png"].src = "imgs/horsemenr.png";
+		imgRes["pike.png"] = new Image();
+		imgRes["pike.png"].src = "imgs/pikemenr.png";
+		imgRes["sword.png"] = new Image();
+		imgRes["sword.png"].src = "imgs/swordsmenr.png";
+        imgRes["tick.png"] = new Image();
+		imgRes["tick.png"].src = "imgs/tick.png";
+		imgRes["quarry.png"] = new Image();
+		imgRes["quarry.png"].src = "imgs/quarryr.png";
+		imgRes["farm.png"] = new Image();
+		imgRes["farm.png"].src = "imgs/farmr.png";
+		imgRes["ww.png"] = new Image();
+		imgRes["ww.png"].src = "imgs/woodworksr.png";
+		imgRes["mw.png"] = new Image();
+		imgRes["mw.png"].src = "imgs/metalworksr.png";
+		imgRes["stab.png"] = new Image();
+		imgRes["stab.png"].src = "imgs/stablesr.png";
+		imgRes["quarryg.png"] = new Image();
+		imgRes["quarryg.png"].src = "imgs/quarryrg.png";
+		imgRes["farmg.png"] = new Image();
+		imgRes["farmg.png"].src = "imgs/farmrg.png";
+		imgRes["wwg.png"] = new Image();
+		imgRes["wwg.png"].src = "imgs/woodworksrg.png";
+		imgRes["mwg.png"] = new Image();
+		imgRes["mwg.png"].src = "imgs/metalworksrg.png";
+		imgRes["stabg.png"] = new Image();
+		imgRes["stabg.png"].src = "imgs/stablesrg.png";
+
+        guiparams["start"] = new Array();
+        guiparams["start"].x = 190;
+        guiparams["start"].y = 30;
+        guiparams["start"].x1 = 140;
+        guiparams["start"].x2 = 240;
+        guiparams["start"].y1 = 0;
+        guiparams["start"].y2 = 50;
+        guiparams["start"].active = false;
+
+        guiparams["build"] = new Array();
+        guiparams["build"].x = 220;
+        guiparams["build"].y = 30;
+        guiparams["build"].x1 = 150;
+        guiparams["build"].x2 = 290;
+        guiparams["build"].y1 = 0;
+        guiparams["build"].y2 = 50;
+        guiparams["build"].active = false;
+
+        guiparams["deposit"] = new Array();
+        guiparams["deposit"].x = 335;
+        guiparams["deposit"].y = 30;
+        guiparams["deposit"].x1 = 290;
+        guiparams["deposit"].x2 = 380;
+        guiparams["deposit"].y1 = 0;
+        guiparams["deposit"].y2 = 50;
+        guiparams["deposit"].active = false;
+
+        guiparams["withdraw"] = new Array();
+        guiparams["withdraw"].x = 450;
+        guiparams["withdraw"].y = 30;
+        guiparams["withdraw"].x1 = 380;
+        guiparams["withdraw"].x2 = 520;
+        guiparams["withdraw"].y1 = 0;
+        guiparams["withdraw"].y2 = 50;
+        guiparams["withdraw"].active = false;
+
+        guiparams["city"] = new Array();
+        guiparams["city"].title = "Default";
+        guiparams["city"].color = colors[0];
+
+        guiparams["attack"] = new Array();
+        guiparams["attack"].x = 238;
+        guiparams["attack"].y = 575;
+        guiparams["attack"].x1 = 200;
+        guiparams["attack"].x2 = 280;
+        guiparams["attack"].y1 = 555;
+        guiparams["attack"].y2 = 595;
+        guiparams["attack"].active = false;
+        guiparams["attack"].text = "Attack a city with selected units (plunder a fraction of owner's treasury)";
+
+        guiparams["move"] = new Array();
+        guiparams["move"].x = 415;
+        guiparams["move"].y = 575;
+        guiparams["move"].x1 = 345;
+        guiparams["move"].x2 = 485;
+        guiparams["move"].y1 = 555;
+        guiparams["move"].y2 = 595;
+        guiparams["move"].active = false;     
+        guiparams["move"].text = "Move selected units to a friendly city";   
+
+        guiparams["quarry"] = new Array();
+        guiparams["quarry"].img = imgRes["quarry.png"];
+        guiparams["quarry"].imgg = imgRes["quarryg.png"];
+        guiparams["quarry"].x = 135;
+        guiparams["quarry"].y = 265;
+        guiparams["quarry"].exists = false;
+        guiparams["quarry"].active = false;
+        guiparams["quarry"].text = "Build quarry (receives production cut from every newly constructed building in the world)";
+        guiparams["farm"] = new Array();
+        guiparams["farm"].img = imgRes["farm.png"];
+        guiparams["farm"].imgg = imgRes["farmg.png"];
+        guiparams["farm"].x = 215;
+        guiparams["farm"].y = 275;
+        guiparams["farm"].exists = false;
+        guiparams["farm"].active = false;
+        guiparams["farm"].text = "Build farm (receives maintenance cut from all existing units in the world)";
+        guiparams["ww"] = new Array();
+        guiparams["ww"].img = imgRes["ww.png"];
+        guiparams["ww"].imgg = imgRes["wwg.png"];
+        guiparams["ww"].x = 295;
+        guiparams["ww"].y = 275;
+        guiparams["ww"].exists = false;
+        guiparams["ww"].active = false;
+        guiparams["ww"].text = "Build woodworks. Enables construction of pikemen for all etherizations (receives production cut from every newly constructed pikemen in the world)";
+        guiparams["mw"] = new Array();
+        guiparams["mw"].img = imgRes["mw.png"];
+        guiparams["mw"].imgg = imgRes["mwg.png"];
+        guiparams["mw"].x = 375;
+        guiparams["mw"].y = 275;
+        guiparams["mw"].exists = false;
+        guiparams["mw"].active = false;
+        guiparams["mw"].text = "Build metalworks. Enables construction of swordsmen for all etherizations (receives production cut from every newly constructed swordsmen in the world)";
+        guiparams["stab"] = new Array();
+        guiparams["stab"].img = imgRes["stab.png"];
+        guiparams["stab"].imgg = imgRes["stabg.png"];
+        guiparams["stab"].x = 455;
+        guiparams["stab"].y = 285;
+        guiparams["stab"].exists = false;
+        guiparams["stab"].active = false;
+        guiparams["stab"].text = "Build stables. Enables construction of horsemen for all etherizations (receives production cut from every newly constructed horsemen in the world)";
+
+        guiparams["pikeb"] = new Array();
+        guiparams["pikeb"].img = imgRes["pikeb.png"];
+        guiparams["pikeb"].imgg = imgRes["pikebg.png"];
+        guiparams["pikeb"].x = 335;
+        guiparams["pikeb"].y = 355;
+        guiparams["pikeb"].active = false;
+        guiparams["pikeb"].text = "Build pikemen (strong against horsemen, weak against swordsmen)";
+        guiparams["swordb"] = new Array();
+        guiparams["swordb"].img = imgRes["swordb.png"];
+        guiparams["swordb"].imgg = imgRes["swordbg.png"];
+        guiparams["swordb"].x = 385;
+        guiparams["swordb"].y = 355;
+        guiparams["swordb"].active = false;
+        guiparams["swordb"].text = "Build swordsmen (strong against pikemen, weak against horsemen)";
+        guiparams["horseb"] = new Array();
+        guiparams["horseb"].img = imgRes["horseb.png"];
+        guiparams["horseb"].imgg = imgRes["horsebg.png"];
+        guiparams["horseb"].x = 445;
+        guiparams["horseb"].y = 355;
+        guiparams["horseb"].active = false;
+        guiparams["horseb"].text = "Build horsemen (strong against swordsmen, weak against pikemen)";
+
+        guiparams["unit0"] = new Array();
+        guiparams["unit0"].type = 0;
+        guiparams["unit0"].x = 135;
+        guiparams["unit0"].y = 455;
+        guiparams["unit0"].exists = false;
+        guiparams["unit0"].active = false;
+        guiparams["unit0"].selected = false;
+        guiparams["unit1"] = new Array();
+        guiparams["unit1"].type = 0;
+        guiparams["unit1"].x = 175;
+        guiparams["unit1"].y = 455;
+        guiparams["unit1"].exists = false;
+        guiparams["unit1"].active = false;
+        guiparams["unit1"].selected = false;
+        guiparams["unit2"] = new Array();
+        guiparams["unit2"].type = 0;
+        guiparams["unit2"].x = 215;
+        guiparams["unit2"].y = 455;
+        guiparams["unit2"].exists = false;
+        guiparams["unit2"].active = false;
+        guiparams["unit2"].selected = false;
+        guiparams["unit3"] = new Array();
+        guiparams["unit3"].type = 0;
+        guiparams["unit3"].x = 255;
+        guiparams["unit3"].y = 455;
+        guiparams["unit3"].exists = false;
+        guiparams["unit3"].active = false;
+        guiparams["unit3"].selected = false;
+        guiparams["unit4"] = new Array();
+        guiparams["unit4"].type = 0;
+        guiparams["unit4"].x = 295;
+        guiparams["unit4"].y = 455;
+        guiparams["unit4"].exists = false;
+        guiparams["unit4"].active = false;
+        guiparams["unit4"].selected = false;
+        guiparams["unit5"] = new Array();
+        guiparams["unit5"].type = 0;
+        guiparams["unit5"].x = 335;
+        guiparams["unit5"].y = 455;
+        guiparams["unit5"].exists = false;
+        guiparams["unit5"].active = false;
+        guiparams["unit5"].selected = false;
+        guiparams["unit6"] = new Array();
+        guiparams["unit6"].type = 0;
+        guiparams["unit6"].x = 375;
+        guiparams["unit6"].y = 455;
+        guiparams["unit6"].exists = false;
+        guiparams["unit6"].active = false;
+        guiparams["unit6"].selected = false;
+        guiparams["unit7"] = new Array();
+        guiparams["unit7"].type = 0;
+        guiparams["unit7"].x = 415;
+        guiparams["unit7"].y = 455;
+        guiparams["unit7"].exists = false;
+        guiparams["unit7"].active = false;
+        guiparams["unit7"].selected = false;
+        guiparams["unit8"] = new Array();
+        guiparams["unit8"].type = 0;
+        guiparams["unit8"].x = 455;
+        guiparams["unit8"].y = 455;
+        guiparams["unit8"].exists = false;
+        guiparams["unit8"].active = false;
+        guiparams["unit8"].selected = false;
+        guiparams["unit9"] = new Array();
+        guiparams["unit9"].type = 0;
+        guiparams["unit9"].x = 495;
+        guiparams["unit9"].y = 455;
+        guiparams["unit9"].exists = false;
+        guiparams["unit9"].active = false;
+        guiparams["unit9"].selected = false;
+
+
+
+        msgList.push("Success! You have established your etherization.");
+        msgList.push("Wait before making the next move.");
+        msgList.push("You can only build in your own city and indexed city needs to exist.");
+        msgList.push("Invalid building type.");
+        msgList.push("Building already exists.");
+        msgList.push("Not enough in the treasury.");
+        msgList.push("Success! You have built a new building.");
+        msgList.push("You can only build units in your own city and indexed city needs to exist.");
+        msgList.push("Invalid unit type.");
+        msgList.push("Unit cannot be built. Not enough in the treasury.");
+        msgList.push("Unit cannot be built. Corresponding production building doesn't exist in the world.");
+        msgList.push("Unit built.");
+        msgList.push("Unit cannot be built. City garrison full.");
+        msgList.push("You can only command units from your own city. Indexed cities need to exist and you can only move to a neighbouring city that is your own.");
+        msgList.push("Some of the units moved.");
+        msgList.push("Units moved.");
+        msgList.push("You can only command units from your own city. Indexed cities need to exist and you can only attack a neighbouring city that is not your own.");
+        msgList.push("City captured!");
+        msgList.push("Defeat!");
+        msgList.push("Success! You have established a new city.");
+        
+
+        /*console.log(Object.keys(guiparams).length);
+        for(var pipi in guiparams) {
+            console.log(guiparams[pipi].x);
+        }*/
+    }
+
+    function fillUnits() {
+        units = new Array();
+        var items = ["unit0", "unit1", "unit2", "unit3", "unit4", "unit5", "unit6", "unit7", "unit8", "unit9"];
+        for(var i=0; i<items.length; i++) {
+            if(guiparams[items[i]].selected) {
+                units.push(i);
+            }
+        }
+    }
+
+    function preventDefault(e) {
+      e = e || window.event;
+      if (e.preventDefault)
+          e.preventDefault();
+      e.returnValue = false;  
+    }
+    function preventDefaultForScrollKeys(e) {
+        if (Object.keys[e.keyCode]) {
+            preventDefault(e);
+            return false;
+        }
+    }
+    function disableScroll() {
+        window.onwheel = preventDefault;
+        window.ontouchmove  = preventDefault;
+        document.onkeydown  = preventDefaultForScrollKeys;
+        document.documentElement.style.overflow = 'hidden';
+
+    }
+    function enableScroll() {
+        window.onwheel = null; 
+        window.ontouchmove = null;  
+        document.onkeydown = null;  
+        document.documentElement.style.overflow = 'auto';
+    }
+
+    function isActive()
+    {
+        if(!started) {
+            return true;
+        }
+        if(web3.eth.getBlock('latest').timestamp - etherization.players(playerID)[6].toNumber() > etherization.WAIT_TIME()) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    function timeLeft()
+    {
+        var tl = etherization.WAIT_TIME() - (web3.eth.getBlock('latest').timestamp - etherization.players(playerID)[6].toNumber());
+        if(tl < 0) {
+            return secondsToHms(0);
+        } else {
+            return secondsToHms(tl);
+        }
+    }
+
+    function secondsToHms(d)
+    {
+        d = Number(d);
+        var h = Math.floor(d / 3600);
+        var m = Math.floor(d % 3600 / 60);
+        var s = Math.floor(d % 3600 % 60);
+        return ((h > 0 ? h + ":" + (m < 10 ? "0" : "") : "") + m + ":" + (s < 10 ? "0" : "") + s);
+    }
+
+    function hexToRgb(hex) {
+        var bigint = parseInt(hex.substring(1), 16);
+        var rgb = new Array(3);
+        rgb[0] = (bigint >> 16) & 255;
+        rgb[1] = (bigint >> 8) & 255;
+        rgb[2] = bigint & 255;
+        return rgb;
+    }
+
+    function removeDark(colall) {
+        var colbright = new Array();
+        var rgb;
+        for (var i = 0; i < colall.length; i++) {
+            rgb = hexToRgb(colall[i]);
+            if(rgb[0]<40 && rgb[1]<40 && rgb[2]<40) {
+                continue;
+            }
+            colbright.push(colall[i]);
+        }
+        return colbright;
+    }
+
+    function checkTargets(row, col) {
+        for(var i=0; i<targets.length; i++) {
+            if(targets[i][0]==row && targets[i][1]==col) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function fillEvents() {
+        var i;
+        var numPlayers = etherization.numPlayers().toNumber();
+
+        events = new Array();
+
+        for(i=0; i<playersTimestamps.length; i++) {
+            if(etherization.players(i)[6].toNumber() != playersTimestamps[i]) {
+                playersTimestamps[i] = etherization.players(i)[6].toNumber();
+                events.push(etherization.playerMsgs(i));
+            }
+        }
+        for(; i<numPlayers; i++) {
+            playersTimestamps.push(etherization.players(i)[6].toNumber());
+            events.push(etherization.playerMsgs(i));
+            if(playerID==i && etherization.playerMsgs(i)%100 == 1) {
+                started = true;
+            }
+        }
+    }
+
+	
+  </script> 
+  </head>
+
+
+
+  <body onload="renderStart();">
+
+    <div id="city-info">  <!-- Unit info dialog -->
+    <canvas id="city" width="575" height="700">
+        City screen. Get a html5 capable browser !
+    </canvas>
+    </div>
+
+    <div id="player-input">
+    <canvas id="player" width="400" height="507">
+        Player-input screen. Get a html5 capable browser !
+    </canvas>
+    </div>
+
+	<canvas id="tiles" width="1700" height="1800">
+		Map. Get a html5 capable browser !
+	</canvas>
+
+  </body>
+</html>
